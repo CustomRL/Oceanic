@@ -5,10 +5,10 @@
 declare module "zlib-sync" {
     namespace ZlibSync {
         class Inflate {
-            constructor(options?: { chunkSize?: number; windowBits?: number; to?: "string"; });
             err: number;
             msg: string | null;
             result: Buffer | string | null;
+            constructor(options?: { chunkSize?: number; to?: "string"; windowBits?: number; });
             push(data: Buffer, flushMode?: boolean | number): boolean;
         }
         const Z_SYNC_FLUSH: number;
