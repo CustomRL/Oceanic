@@ -63,6 +63,7 @@ const PrimaryGuild = (await import("./dist/lib/structures/PrimaryGuild.js")).def
 const PrivateChannel = (await import("./dist/lib/structures/PrivateChannel.js")).default.default;
 const PrivateThreadChannel = (await import("./dist/lib/structures/PrivateThreadChannel.js")).default.default;
 const PublicThreadChannel = (await import("./dist/lib/structures/PublicThreadChannel.js")).default.default;
+const RedisCollection = (await import("./dist/lib/util/RedisCollection.js")).default.default;
 const RequestHandler = (await import("./dist/lib/rest/RequestHandler.js")).default.default;
 const RESTManager = (await import("./dist/lib/rest/RESTManager.js")).default.default;
 const Role = (await import("./dist/lib/structures/Role.js")).default.default;
@@ -162,6 +163,7 @@ export {
     PrivateChannel,
     PrivateThreadChannel,
     PublicThreadChannel,
+    RedisCollection,
     RequestHandler,
     RESTManager,
     Role,

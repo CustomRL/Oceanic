@@ -2130,7 +2130,7 @@ export default class Guilds {
                     flags:         m.flags,
                     id:            m.id,
                     joinTimestamp: new Date(m.join_timestamp),
-                    member:        m.member && guild?.members.update(m.member, guildID),
+                    member:        m.member && guild?.members.update(m.member),
                     userID:        m.user_id
                 })),
                 messages:     data.messages.map(messages => messages.map(message => this._manager.client.util.updateMessage<T>(message))),

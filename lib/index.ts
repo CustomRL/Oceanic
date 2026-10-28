@@ -67,6 +67,7 @@ export { default as PrimaryGuild } from "./structures/PrimaryGuild";
 export { default as PrivateChannel } from "./structures/PrivateChannel";
 export { default as PrivateThreadChannel } from "./structures/PrivateThreadChannel";
 export { default as PublicThreadChannel } from "./structures/PublicThreadChannel";
+export { default as RedisCollection } from "./util/RedisCollection";
 export { default as RequestHandler } from "./rest/RequestHandler";
 export { default as RESTManager } from "./rest/RESTManager";
 export { default as Role } from "./structures/Role";

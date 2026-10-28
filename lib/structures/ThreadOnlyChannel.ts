@@ -188,15 +188,15 @@ export default class ThreadOnlyChannel extends GuildChannel {
     }
 
     /**
-     * Get the permissions of a member.  If providing an id, the member must be cached.
+     * Get the permissions of a member. An id can only be the client's own, as other members are stored in Redis; pass a Member from `await guild.members.get(id)`.
      * @param member The member to get the permissions of.
      */
     permissionsOf(member: string | Member): Permission {
         if (typeof member === "string") {
-            member = this.guild.members.get(member)!;
+            member = (member === this.client.user.id ? this.guild.clientMember : undefined)!;
         }
         if (!member) {
-            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID when the member is not cached.`);
+            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID other than the client's. Pass a Member instead.`);
         }
         let permission = this.guild.permissionsOf(member).allow;
         if (permission & Permissions.ADMINISTRATOR) {

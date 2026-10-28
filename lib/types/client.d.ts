@@ -28,13 +28,10 @@ export interface ClientOptions {
      * @defaultValue false
      */
     disableCache?: boolean | "no-warning";
-    /**
-     * When member limits are set on guilds, the limit is automatically raised if needed when requesting members from the gateway. This can be buggy and may not function correctly.
-     * @defaultValue false
-     */
-    disableMemberLimitScaling?: boolean;
     /** The gateway options. */
     gateway?: Types.Gateway.GatewayOptions;
+    /** Where the users, members and messages caches are stored. */
+    redis: RedisOptions;
     /** The options for the request handler. */
     rest?: RESTOptions;
     /**
@@ -45,11 +42,31 @@ export interface ClientOptions {
     token?: string;
 }
 
-export interface ClientInstanceOptions extends Required<Omit<ClientOptions, "rest" | "gateway" | "collectionLimits" | "disableCache" | "token">> {
+export interface ClientInstanceOptions extends Required<Omit<ClientOptions, "rest" | "gateway" | "collectionLimits" | "disableCache" | "redis" | "token">> {
     collectionLimits: Required<CollectionLimitsOptions>;
     disableCache: boolean;
+    redis: Required<RedisOptions>;
     /** If rest mode has been enabled. */
     restMode: boolean;
+}
+
+export interface RedisOptions {
+    /** A connected client, such as one from node-redis' `createClient`. */
+    client: RedisLike;
+    /**
+     * In seconds, how long messages are kept after their last write.
+     * @defaultValue 86400
+     */
+    messageTTL?: number;
+}
+
+/** The commands used from a [node-redis](https://github.com/redis/node-redis) (v4+) compatible client. */
+export interface RedisLike {
+    del(key: string): Promise<number>;
+    exists(key: string): Promise<number>;
+    expire(key: string, seconds: number): Promise<number | boolean>;
+    hGetAll(key: string): Promise<Record<string, string>>;
+    hSet(key: string, value: Record<string, string>): Promise<number>;
 }
 
 export interface RESTOptions {
@@ -176,20 +193,6 @@ export interface CollectionLimitsOptions {
      */
     invites?: number | Record<string, number>;
     /**
-     * The maximum number of members to cache.
-     *
-     * Note: If you request members from the gateway, this will be increased (on the specific guild) as needed to accommodate those members.
-     * @dictionaryKey guild id
-     * @defaultValue Infinity
-     */
-    members?: number | Record<string, number>;
-    /**
-     * The maximum number of messages to cache.
-     * @dictionaryKey channel id
-     * @defaultValue 100
-     */
-    messages?: number | Record<string, number>;
-    /**
      * The maximum number of private channels to cache.
      * @defaultValue 25
      */
@@ -230,11 +233,6 @@ export interface CollectionLimitsOptions {
      * @note Changing this WILL break many things. The client may not even ready poperly.
      */
     unavailableGuilds?: number;
-    /**
-     * The maximum number of users to cache globally.
-     * @defaultValue Infinity
-     */
-    users?: number;
     /**
      * The maximum number of voice members to cache.
      * @dictionaryKey guild id

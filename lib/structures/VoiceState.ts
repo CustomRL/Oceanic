@@ -12,7 +12,6 @@ export default class VoiceState<T extends Types.Channels.AnyVoiceChannel = Types
     private _cachedChannel?: T | null;
     private _cachedGuild?: Guild;
     private _cachedMember?: Member;
-    private _cachedUser?: User;
     /** The ID of the channel the user is connected to. */
     channelID: string | null;
     /** If the associated member is deafened. */
@@ -120,14 +119,14 @@ export default class VoiceState<T extends Types.Channels.AnyVoiceChannel = Types
         return this._cachedGuild;
     }
 
-    /** The member associated with this voice state. */
+    /** The member associated with this voice state, as of the last voice state update that included it. Members are stored in Redis; use `await guild.members.get(userID)` for the current one. */
     get member(): Member | undefined {
-        return this._cachedMember ?? (this._cachedMember = this["_cachedGuild"]?.members.get(this.userID));
+        return this._cachedMember;
     }
 
-    /** TThe user associated with this voice state. */
+    /** TThe user associated with this voice state, as of the last voice state update that included it. */
     get user(): User | undefined {
-        return this._cachedUser ?? (this._cachedUser = this.client.users.get(this.userID));
+        return this._cachedMember?.user;
     }
 
     override toJSON(): Types.JSON.JSONVoiceState {

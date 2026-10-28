@@ -5,7 +5,7 @@ import Message from "./Message";
 import type * as Types from "../types/namespaced";
 import type { ChannelTypes } from "../Constants";
 import type Client from "../Client";
-import TypedCollection from "../util/TypedCollection";
+import RedisCollection from "../util/RedisCollection";
 
 /** Represents a direct message with a user. */
 export default class PrivateChannel extends Channel {
@@ -15,14 +15,14 @@ export default class PrivateChannel extends Channel {
     lastMessageID: string | null;
     /** The timestamp of the last pinned message in this channel. */
     lastPinTimestamp: string | null;
-    /** The cached messages in this channel. */
-    messages: TypedCollection<Types.Channels.RawMessage, Message<this>>;
+    /** The cached messages in this channel, stored in Redis. */
+    messages: RedisCollection<Types.Channels.RawMessage, Message<this>>;
     /** The other user in this direct message. */
     recipient: User;
     declare type: ChannelTypes.DM;
     constructor(data: Types.Channels.RawPrivateChannel, client: Client) {
         super(data, client);
-        this.messages = new TypedCollection(Message<this>, client, this.client.util._getLimit("messages", this.id));
+        this.messages = new RedisCollection(client, "oceanic:message:", rawMessage => new Message<this>(rawMessage, client), { ttl: client.options.redis.messageTTL });
         this.lastMessageID = data.last_message_id;
         this.lastPinTimestamp = data.last_pin_timestamp ?? null;
         this.recipient = client.users.update(data.recipients[0]);
@@ -30,7 +30,7 @@ export default class PrivateChannel extends Channel {
 
     protected override update(data: Partial<Types.Channels.RawPrivateChannel>): void {
         if (data.last_message_id !== undefined) {
-            this.lastMessage = data.last_message_id === null ? null : this.messages.get(data.last_message_id);
+            this.lastMessage = data.last_message_id === null ? null : (this.lastMessage?.id === data.last_message_id ? this.lastMessage : undefined);
             this.lastMessageID = data.last_message_id;
         }
         if (data.last_pin_timestamp !== undefined) {
@@ -180,7 +180,6 @@ export default class PrivateChannel extends Channel {
             ...super.toJSON(),
             lastMessageID:    this.lastMessageID,
             lastPinTimestamp: this.lastPinTimestamp,
-            messages:         this.messages.map(message => message.id),
             recipient:        this.recipient?.toJSON(),
             type:             this.type
         };

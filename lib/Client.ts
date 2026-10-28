@@ -2,6 +2,7 @@
 import type * as Types from "./types/namespaced";
 import RESTManager from "./rest/RESTManager";
 import TypedCollection from "./util/TypedCollection";
+import RedisCollection from "./util/RedisCollection";
 import PrivateChannel from "./structures/PrivateChannel";
 import GroupChannel from "./structures/GroupChannel";
 import User from "./structures/User";
@@ -46,15 +47,18 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
     threadGuildMap = new Map<string, string>();
     time = new Time(this);
     unavailableGuilds: TypedCollection<Types.Guilds.RawUnavailableGuild, UnavailableGuild>;
-    users: TypedCollection<Types.Users.RawUser, User>;
+    users: RedisCollection<Types.Users.RawUser, User>;
     util = new Util(this);
     voiceAdapters = new Map<string, DiscordGatewayAdapterLibraryMethods>();
     /**
      * @constructor
      * @param options The options to create the client with.
      */
-    constructor(options?: Types.Client.ClientOptions) {
+    constructor(options: Types.Client.ClientOptions) {
         super();
+        if (!options?.redis?.client) {
+            throw new TypeError("The redis.client option is required: users, members and messages are cached in Redis.");
+        }
         this.time.set("start", Date.now());
         const disableCache = options?.disableCache === true || options?.disableCache === "no-warning";
         const colZero = {
@@ -67,8 +71,6 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
             guildThreads:        0,
             integrations:        0,
             invites:             0,
-            members:             0,
-            messages:            0,
             privateChannels:     0,
             roles:               0,
             scheduledEvents:     0,
@@ -76,7 +78,6 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
             stageInstances:      0,
             stickers:            0,
             unavailableGuilds:   0,
-            users:               0,
             voiceMembers:        0,
             voiceStates:         0
         } satisfies Required<Types.Client.CollectionLimitsOptions>;
@@ -105,8 +106,6 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
                 guildThreads:        this.util._setLimit(options?.collectionLimits?.guildThreads, Infinity),
                 integrations:        this.util._setLimit(options?.collectionLimits?.integrations, Infinity),
                 invites:             this.util._setLimit(options?.collectionLimits?.invites, Infinity),
-                members:             this.util._setLimit(options?.collectionLimits?.members, Infinity),
-                messages:            this.util._setLimit(options?.collectionLimits?.messages, 100),
                 privateChannels:     options?.collectionLimits?.privateChannels ?? 25,
                 roles:               this.util._setLimit(options?.collectionLimits?.roles, Infinity),
                 scheduledEvents:     this.util._setLimit(options?.collectionLimits?.scheduledEvents, Infinity),
@@ -114,14 +113,16 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
                 stageInstances:      this.util._setLimit(options?.collectionLimits?.stageInstances, Infinity),
                 stickers:            this.util._setLimit(options?.collectionLimits?.stickers, Infinity),
                 unavailableGuilds:   options?.collectionLimits?.unavailableGuilds ?? Infinity,
-                users:               options?.collectionLimits?.users ?? Infinity,
                 voiceMembers:        this.util._setLimit(options?.collectionLimits?.voiceMembers, Infinity),
                 voiceStates:         this.util._setLimit(options?.collectionLimits?.voiceStates, Infinity)
             },
-            defaultImageFormat:        options?.defaultImageFormat ?? "png",
-            defaultImageSize:          options?.defaultImageSize ?? 4096,
-            disableMemberLimitScaling: options?.disableMemberLimitScaling ?? false,
-            restMode:                  false,
+            defaultImageFormat: options?.defaultImageFormat ?? "png",
+            defaultImageSize:   options?.defaultImageSize ?? 4096,
+            redis:              {
+                client:     options.redis.client,
+                messageTTL: options.redis.messageTTL ?? 86400
+            },
+            restMode: false,
             disableCache
         };
         if (options?.disableCache === true) {
@@ -137,7 +138,7 @@ export default class Client<E extends Types.Events.ClientEvents = Types.Events.C
         this.rest = new RESTManager(this, options?.rest);
         this.shards = new ShardManager(this, options?.gateway);
         this.unavailableGuilds = new TypedCollection(UnavailableGuild, this, this.options.collectionLimits.unavailableGuilds);
-        this.users = new TypedCollection(User, this, this.options.collectionLimits.users);
+        this.users = new RedisCollection(this, "oceanic:user:", data => new User(data, this));
     }
 
     /** The client's partial application. This will throw an error if not using a gateway connection or no shard is READY. If using a client for rest only, consider enabling rest mode. */

@@ -1,6 +1,5 @@
 /** @module Team */
 import Base from "./Base";
-import type User from "./User";
 import type * as Types from "../types/namespaced";
 import type Client from "../Client";
 import type { TeamPayoutAccountStatus } from "../Constants";
@@ -13,8 +12,6 @@ export default class Team extends Base {
     members: Array<Types.Applications.TeamMember>;
     /** The name of this team. */
     name: string;
-    /** The owner of this team. */
-    owner?: User;
     /** The ID of the owner of this team. */
     ownerID: string;
     /** The status of the team's primary payout account */
@@ -28,7 +25,6 @@ export default class Team extends Base {
         this.icon = null;
         this.members = [];
         this.name = data.name;
-        this.owner = this.client.users.get(data.owner_user_id);
         this.ownerID = data.owner_user_id;
         this.payoutAccountStatus = data.payout_account_status;
         this.payoutAccountStatuses = data.payout_account_statuses;
@@ -44,7 +40,6 @@ export default class Team extends Base {
             this.name = data.name;
         }
         if (data.owner_user_id !== undefined) {
-            this.owner = this.client.users.get(data.owner_user_id);
             this.ownerID = data.owner_user_id;
         }
         if (data.members !== undefined) {

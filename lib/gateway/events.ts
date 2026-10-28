@@ -23,6 +23,20 @@ import Soundboard from "../structures/Soundboard";
 import type Base from "../structures/Base";
 import { isDeepStrictEqual } from "node:util";
 
+/** Reaction events change a message without a MESSAGE_UPDATE, so the stored reactions are rewritten. */
+function writeReactions(message: Message): void {
+    message.channel?.messages.write(message.id, {
+        reactions: message.reactions.map(r => ({
+            burst_colors:  r.burstColors,
+            count:         r.count,
+            count_details: r.countDetails,
+            emoji:         r.emoji,
+            me:            r.me,
+            me_burst:      r.meBurst
+        }))
+    });
+}
+
 export async function APPLICATION_COMMAND_PERMISSIONS_UPDATE(data: DispatchEventMap["APPLICATION_COMMAND_PERMISSIONS_UPDATE"], shard: Shard): Promise<void> {
     shard.client.emit("applicationCommandPermissionsUpdate", shard.client.guilds.get(data.guild_id) ?? { id: data.guild_id }, {
         application:   data.application_id === shard.client.application.id ? shard.client.application : undefined,
@@ -39,7 +53,7 @@ export async function AUTO_MODERATION_ACTION_EXECUTION(data: DispatchEventMap["A
         "autoModerationActionExecution",
         guild ?? { id: data.guild_id },
         data.channel_id === undefined ? null : channel ?? { id: data.channel_id },
-        shard.client.users.get(data.user_id) ?? { id: data.user_id },
+        await shard.client.users.get(data.user_id) ?? { id: data.user_id },
         {
             action: {
                 metadata: {
@@ -239,9 +253,6 @@ export async function GUILD_MEMBER_ADD(data: DispatchEventMap["GUILD_MEMBER_ADD"
 }
 
 export async function GUILD_MEMBERS_CHUNK(data: DispatchEventMap["GUILD_MEMBERS_CHUNK"], shard: Shard): Promise<void> {
-    const guild = shard.client.guilds.get(data.guild_id);
-    // eslint-disable-next-line @typescript-eslint/dot-notation
-    guild?.["updateMemberLimit"](data.members.length);
     const members = data.members.map(member => shard.client.util.updateMember(data.guild_id, member.user!.id, member));
     if (data.presences) for (const presence of data.presences) {
         const member = members.find(m => m.id === presence.user.id)!;
@@ -303,7 +314,7 @@ export async function GUILD_MEMBER_REMOVE(data: DispatchEventMap["GUILD_MEMBER_R
     }
     const guild = shard.client.guilds.get(data.guild_id);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    let user: Member | User | undefined = guild?.members.get(data.user.id);
+    let user: Member | User | undefined = await guild?.members.get(data.user.id);
     if (user instanceof Member) {
         user["update"]({ user: data.user });
     } else {
@@ -311,14 +322,14 @@ export async function GUILD_MEMBER_REMOVE(data: DispatchEventMap["GUILD_MEMBER_R
     }
     if (guild) {
         guild.memberCount--;
-        guild.members.delete(data.user.id);
+        await guild.members.delete(data.user.id);
     }
     shard.client.emit("guildMemberRemove", user, guild ?? { id: data.guild_id });
 }
 
 export async function GUILD_MEMBER_UPDATE(data: DispatchEventMap["GUILD_MEMBER_UPDATE"], shard: Shard): Promise<void> {
     const guild = shard.client.guilds.get(data.guild_id);
-    const oldMember = guild?.members.get(data.user.id)?.toJSON() ?? null;
+    const oldMember = (await guild?.members.get(data.user.id))?.toJSON() ?? null;
     const member = shard.client.util.updateMember(data.guild_id, data.user.id, {  deaf: oldMember?.deaf ?? false, mute: oldMember?.mute ?? false, ...data });
     shard.client.emit("guildMemberUpdate", member, oldMember);
 }
@@ -369,7 +380,7 @@ export async function GUILD_SCHEDULED_EVENT_USER_ADD(data: DispatchEventMap["GUI
     if (event?.userCount) {
         event.userCount++;
     }
-    const user = shard.client.users.get(data.user_id) ?? { id: data.user_id };
+    const user = await shard.client.users.get(data.user_id) ?? { id: data.user_id };
     shard.client.emit("guildScheduledEventUserAdd", event ?? { id: data.guild_scheduled_event_id }, user ?? { id: data.user_id });
 }
 
@@ -379,7 +390,7 @@ export async function GUILD_SCHEDULED_EVENT_USER_REMOVE(data: DispatchEventMap["
     if (event?.userCount) {
         event.userCount--;
     }
-    const user = shard.client.users.get(data.user_id) ?? { id: data.user_id };
+    const user = await shard.client.users.get(data.user_id) ?? { id: data.user_id };
     shard.client.emit("guildScheduledEventUserRemove", event ?? { id: data.guild_scheduled_event_id }, user ?? { id: data.user_id });
 }
 
@@ -484,9 +495,9 @@ export async function MESSAGE_CREATE(data: DispatchEventMap["MESSAGE_CREATE"], s
 
 export async function MESSAGE_DELETE(data: DispatchEventMap["MESSAGE_DELETE"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
-    const message = channel?.messages?.get(data.id);
+    const message = await channel?.messages?.get(data.id);
     if (channel) {
-        channel.messages?.delete(data.id);
+        await channel.messages?.delete(data.id);
         if (channel.lastMessageID === data.id) {
             channel.lastMessageID = null;
             channel.lastMessage = null;
@@ -503,9 +514,9 @@ export async function MESSAGE_DELETE(data: DispatchEventMap["MESSAGE_DELETE"], s
 export async function MESSAGE_DELETE_BULK(data: DispatchEventMap["MESSAGE_DELETE_BULK"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
     const guild = data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined;
-    shard.client.emit("messageDeleteBulk", data.ids.map(id => {
-        const message = channel?.messages?.get(id);
-        channel?.messages?.delete(id);
+    shard.client.emit("messageDeleteBulk", await Promise.all(data.ids.map(async id => {
+        const message = await channel?.messages?.get(id);
+        await channel?.messages?.delete(id);
         return message ?? {
             channel:   channel ?? { id: data.channel_id },
             channelID: data.channel_id,
@@ -513,14 +524,14 @@ export async function MESSAGE_DELETE_BULK(data: DispatchEventMap["MESSAGE_DELETE
             guildID:   data.guild_id,
             id
         };
-    }));
+    })));
 }
 
 export async function MESSAGE_POLL_VOTE_ADD(data: DispatchEventMap["MESSAGE_POLL_VOTE_ADD"], shard: Shard): Promise<void> {
-    const user = shard.client.users.get(data.user_id) ?? { id: data.user_id };
+    const user = await shard.client.users.get(data.user_id) ?? { id: data.user_id };
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id) ?? { id: data.channel_id };
     const guild = data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined;
-    const message = (channel instanceof Channel ? channel.messages.get(data.message_id) : undefined) ?? { channel, channelID: channel.id, guild, guildID: guild?.id, id: data.message_id };
+    const message = (channel instanceof Channel ? await channel.messages.get(data.message_id) : undefined) ?? { channel, channelID: channel.id, guild, guildID: guild?.id, id: data.message_id };
     let answer: Types.Channels.PollAnswer | { answerID: number; } = { answerID: data.answer_id };
     if (message instanceof Message && message.poll !== undefined) {
         const pollAnswer = message.poll.answers.find(a => a.answerID === data.answer_id);
@@ -534,10 +545,10 @@ export async function MESSAGE_POLL_VOTE_ADD(data: DispatchEventMap["MESSAGE_POLL
 }
 
 export async function MESSAGE_POLL_VOTE_REMOVE(data: DispatchEventMap["MESSAGE_POLL_VOTE_REMOVE"], shard: Shard): Promise<void> {
-    const user = shard.client.users.get(data.user_id) ?? { id: data.user_id };
+    const user = await shard.client.users.get(data.user_id) ?? { id: data.user_id };
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id) ?? { id: data.channel_id };
     const guild = data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined;
-    const message = (channel instanceof Channel ? channel.messages.get(data.message_id) : undefined) ?? { channel, channelID: channel.id, guild, guildID: guild?.id, id: data.message_id };
+    const message = (channel instanceof Channel ? await channel.messages.get(data.message_id) : undefined) ?? { channel, channelID: channel.id, guild, guildID: guild?.id, id: data.message_id };
     let answer: Types.Channels.PollAnswer | { answerID: number; } = { answerID: data.answer_id };
     if (message instanceof Message && message.poll !== undefined) {
         const pollAnswer = message.poll.answers.find(a => a.answerID === data.answer_id);
@@ -553,10 +564,10 @@ export async function MESSAGE_POLL_VOTE_REMOVE(data: DispatchEventMap["MESSAGE_P
 export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACTION_ADD"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
     const guild = data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined;
-    const message = channel?.messages?.get(data.message_id);
+    const message = await channel?.messages?.get(data.message_id);
     const reactor = data.member
-        ? (data.guild_id ? shard.client.util.updateMember(data.guild_id, data.user_id, data.member) : shard.client.users.get(data.user_id) ?? { id: data.user_id })
-        : shard.client.users.get(data.user_id) ?? { id: data.user_id };
+        ? (data.guild_id ? shard.client.util.updateMember(data.guild_id, data.user_id, data.member) : await shard.client.users.get(data.user_id) ?? { id: data.user_id })
+        : await shard.client.users.get(data.user_id) ?? { id: data.user_id };
 
     if (message) {
         const index = message.reactions.findIndex(r => r.emoji.id === data.emoji.id && r.emoji.name === data.emoji.name);
@@ -583,7 +594,7 @@ export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACT
                 message.reactions[index].me = true;
             }
         }
-
+        writeReactions(message);
     }
 
     shard.client.emit("messageReactionAdd", message ?? {
@@ -592,8 +603,8 @@ export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACT
         guild,
         guildID:   data.guild_id,
         id:        data.message_id ,
-        author:    data.message_author_id === undefined ? undefined : shard.client.users.get(data.message_author_id) ?? { id: data.message_author_id },
-        member:    data.message_author_id === undefined ? undefined : guild?.members.get(data.message_author_id) ?? { id: data.message_author_id }
+        author:    data.message_author_id === undefined ? undefined : await shard.client.users.get(data.message_author_id) ?? { id: data.message_author_id },
+        member:    data.message_author_id === undefined ? undefined : await guild?.members.get(data.message_author_id) ?? { id: data.message_author_id }
     }, reactor, {
         burst:       data.burst,
         burstColors: data.burst_colors,
@@ -604,8 +615,8 @@ export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACT
 
 export async function MESSAGE_REACTION_REMOVE(data: DispatchEventMap["MESSAGE_REACTION_REMOVE"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
-    const message = channel?.messages?.get(data.message_id);
-    const reactor = shard.client.users.get(data.user_id) ?? { id: data.user_id };
+    const message = await channel?.messages?.get(data.message_id);
+    const reactor = await shard.client.users.get(data.user_id) ?? { id: data.user_id };
 
     if (message) {
         const index = message.reactions.findIndex(r => r.emoji.id === data.emoji.id && r.emoji.name === data.emoji.name);
@@ -627,6 +638,7 @@ export async function MESSAGE_REACTION_REMOVE(data: DispatchEventMap["MESSAGE_RE
                 message.reactions.splice(index, 1);
             }
         }
+        writeReactions(message);
     }
 
     shard.client.emit("messageReactionRemove", message ?? {
@@ -645,10 +657,11 @@ export async function MESSAGE_REACTION_REMOVE(data: DispatchEventMap["MESSAGE_RE
 
 export async function MESSAGE_REACTION_REMOVE_ALL(data: DispatchEventMap["MESSAGE_REACTION_REMOVE_ALL"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
-    const message = channel?.messages?.get(data.message_id);
+    const message = await channel?.messages?.get(data.message_id);
 
     if (message) {
         message.reactions = [];
+        writeReactions(message);
     }
 
     shard.client.emit("messageReactionRemoveAll", message ?? {
@@ -662,13 +675,14 @@ export async function MESSAGE_REACTION_REMOVE_ALL(data: DispatchEventMap["MESSAG
 
 export async function MESSAGE_REACTION_REMOVE_EMOJI(data: DispatchEventMap["MESSAGE_REACTION_REMOVE_EMOJI"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
-    const message = channel?.messages?.get(data.message_id);
+    const message = await channel?.messages?.get(data.message_id);
 
     if (message) {
         const index = message.reactions.findIndex(r => r.emoji.id === data.emoji.id && r.emoji.name === data.emoji.name);
         if (index !== -1) {
             message.reactions.splice(index, 1);
         }
+        writeReactions(message);
     }
 
     shard.client.emit("messageReactionRemoveEmoji", message ?? {
@@ -682,27 +696,32 @@ export async function MESSAGE_REACTION_REMOVE_EMOJI(data: DispatchEventMap["MESS
 
 export async function MESSAGE_UPDATE(data: DispatchEventMap["MESSAGE_UPDATE"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
-    const oldMessage = channel?.messages?.get(data.id)?.toJSON() ?? null;
+    const oldMessage = (await channel?.messages?.get(data.id))?.toJSON() ?? null;
     if (!oldMessage && !data.author) {
         shard.client.emit("debug", `Got partial MESSAGE_UPDATE for uncached message ${data.id} for channel ${data.channel_id}, discarding..`);
         return;
     }
-    const message = channel?.messages?.update(data) ?? new Message(data as Types.Channels.RawMessage, shard.client);
+    let message = channel?.messages?.update(data) ?? new Message(data as Types.Channels.RawMessage, shard.client);
+    if (oldMessage) {
+        // built from the update alone; read back the merged entry so fields the update omits are kept
+        message = await channel!.messages.get(data.id) ?? message;
+    }
     shard.client.emit("messageUpdate", message, oldMessage);
 }
 
 export async function PRESENCE_UPDATE(data: DispatchEventMap["PRESENCE_UPDATE"], shard: Shard): Promise<void> {
-    const user = shard.client.users.get(data.user.id);
+    const user = await shard.client.users.get(data.user.id);
     if (user) {
         const oldUser = user.toJSON();
         user["update"](data.user);
         if (!isDeepStrictEqual(oldUser, user.toJSON())) {
+            shard.client.users.write(user.id, data.user);
             shard.client.emit("userUpdate", user, oldUser);
         }
     }
 
     const guild = shard.client.guilds.get(data.guild_id);
-    const member = guild?.members.get(data.user.id);
+    const member = await guild?.members.get(data.user.id);
     const oldPresence = member?.presence ?? null;
 
     const presence = {
@@ -950,19 +969,22 @@ export async function TYPING_START(data: DispatchEventMap["TYPING_START"], shard
         shard.client.emit("typingStart", channel, member, startTimestamp);
         return;
     }
-    const user = shard.client.users.get(data.user_id);
+    const user = await shard.client.users.get(data.user_id);
     shard.client.emit("typingStart", channel, user ?? { id: data.user_id }, startTimestamp);
 }
 
 export async function USER_UPDATE(data: DispatchEventMap["USER_UPDATE"], shard: Shard): Promise<void> {
-    const oldUser = shard.client.users.get(data.id)?.toJSON() ?? null;
+    const oldUser = (await shard.client.users.get(data.id))?.toJSON() ?? null;
+    if (data.id === shard.client["_user"]?.id) {
+        shard.client.user["update"](data);
+    }
     shard.client.emit("userUpdate", shard.client.users.update(data), oldUser);
 }
 
 export async function VOICE_CHANNEL_EFFECT_SEND(data: DispatchEventMap["VOICE_CHANNEL_EFFECT_SEND"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.AnyVoiceChannel>(data.channel_id);
     const guild = shard.client.guilds.get(data.guild_id);
-    const user = guild?.members.get(data.user_id) ?? shard.client.users.get(data.user_id);
+    const user = await guild?.members.get(data.user_id) ?? await shard.client.users.get(data.user_id);
     shard.client.emit("voiceChannelEffectSend", channel ?? { id: data.channel_id, guild: guild ?? { id: data.guild_id } }, user ?? { id: data.user_id }, {
         animationID:   data.animation_id,
         animationType: data.animation_type,

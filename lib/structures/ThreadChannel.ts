@@ -7,7 +7,7 @@ import type Permission from "./Permission";
 import type * as Types from "../types/namespaced";
 import { ChannelTypes } from "../Constants";
 import type Client from "../Client";
-import TypedCollection from "../util/TypedCollection";
+import RedisCollection from "../util/RedisCollection";
 import { UncachedError } from "../util/Errors";
 
 /** Represents a guild thread channel. */
@@ -22,10 +22,8 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
     members: Array<Types.Channels.ThreadMember>;
     /** The number of messages (not including the initial message or deleted messages) in the thread. Stops counting after 50. */
     messageCount: number;
-    /** The cached messages in this channel. */
-    messages: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
-    /** The owner of this thread. */
-    owner?: User;
+    /** The cached messages in this channel, stored in Redis. */
+    messages: RedisCollection<Types.Channels.RawMessage, Message<CH>>;
     /** The ID of the owner of this thread. */
     ownerID: string;
     declare parentID: string;
@@ -43,7 +41,7 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
         this.memberCount = 0;
         this.members = [];
         this.messageCount = 0;
-        this.messages = new TypedCollection(Message<CH>, client, this.client.util._getLimit("messages", this.id));
+        this.messages = new RedisCollection(client, "oceanic:message:", rawMessage => new Message<CH>(rawMessage, client), { ttl: client.options.redis.messageTTL });
         this.ownerID = data.owner_id;
         this.rateLimitPerUser = data.rate_limit_per_user;
         this.threadMetadata = {
@@ -66,7 +64,7 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
             this.flags = data.flags;
         }
         if (data.last_message_id !== undefined) {
-            this.lastMessage = data.last_message_id === null ? null : this.messages.get(data.last_message_id);
+            this.lastMessage = data.last_message_id === null ? null : (this.lastMessage?.id === data.last_message_id ? this.lastMessage : undefined);
             this.lastMessageID = data.last_message_id;
         }
         // @TODO look over this to see if we can make it "safer" (accessing Client#user)
@@ -90,7 +88,6 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
             this.messageCount = data.message_count;
         }
         if (data.owner_id !== undefined) {
-            this.owner = this.client.users.get(data.owner_id);
             this.ownerID = data.owner_id;
         }
         if (data.rate_limit_per_user !== undefined) {
@@ -342,7 +339,6 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
             lastMessageID:    this.lastMessageID,
             memberCount:      this.memberCount,
             messageCount:     this.messageCount,
-            messages:         this.messages.map(m => m.id),
             ownerID:          this.ownerID,
             rateLimitPerUser: this.rateLimitPerUser,
             threadMetadata:   this.threadMetadata,

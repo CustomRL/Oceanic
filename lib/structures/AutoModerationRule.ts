@@ -1,6 +1,5 @@
 /** @module AutoModerationRule */
 import Base from "./Base";
-import type User from "./User";
 import type Guild from "./Guild";
 import type * as Types from "../types/namespaced";
 import type Client from "../Client";
@@ -12,8 +11,6 @@ export default class AutoModerationRule extends Base {
     private _cachedGuild?: Guild;
     /** The actions that will execute when this rule is triggered. */
     actions: Array<Types.AutoModeration.AutoModerationAction>;
-    /** The creator of this rule. */
-    creator?: User;
     /** The ID of the creator of this rule. */
     creatorID: string;
     /** If this rule is enabled. */
@@ -42,7 +39,6 @@ export default class AutoModerationRule extends Base {
             },
             type: a.type
         }));
-        this.creator = client.users.get(data.creator_id);
         this.creatorID = data.creator_id;
         this.enabled = data.enabled;
         this.eventType = data.event_type;

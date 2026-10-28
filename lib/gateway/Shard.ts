@@ -121,10 +121,11 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
         this.client.shards["_ready"](this.id);
         this.client["_application"] = new ClientApplication(data.application, this.client);
         if (this.client["_user"]) {
-            this.client.users.update(data.user as unknown as Types.Users.RawUser);
+            this.client["_user"]["update"](data.user as Types.Users.RawOAuthUser);
         } else {
-            this.client["_user"] = this.client.users.add(new ExtendedUser(data.user as Types.Users.RawOAuthUser, this.client));
+            this.client["_user"] = new ExtendedUser(data.user as Types.Users.RawOAuthUser, this.client);
         }
+        this.client.users.write(data.user.id, data.user as unknown as Types.Users.RawUser);
 
         let url = data.resume_gateway_url;
         if (url.includes("?")) {
@@ -185,7 +186,8 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
     private createGuild(data: Types.Guilds.RawGuild): Guild {
         this.client.guildShardMap.set(data.id, this.id);
         const guild = this.client.guilds.update(data);
-        if (this.client.shards.options.getAllUsers && guild.members.size < guild.memberCount) {
+        // the members cache is in Redis and its size unknown, so every guild is requested
+        if (this.client.shards.options.getAllUsers) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
             void this.requestGuildMembers(guild.id, { presences: (this.client.shards.options.intents & Intents.GUILD_PRESENCES) === Intents.GUILD_PRESENCES });
         }
@@ -684,14 +686,8 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
         if (!opts.user_ids && !opts.query) {
             opts.query = "";
         }
-        if (!opts.query && !opts.user_ids) {
-            if (!(this.client.shards.options.intents & Intents.GUILD_MEMBERS)) {
-                throw new TypeError("Cannot request all members without the GUILD_MEMBERS intent.");
-            }
-            const guild = this.client.guilds.get(guildID);
-            if (guild) {
-                guild["updateMemberLimit"](true);
-            }
+        if (!opts.query && !opts.user_ids && !(this.client.shards.options.intents & Intents.GUILD_MEMBERS)) {
+            throw new TypeError("Cannot request all members without the GUILD_MEMBERS intent.");
         }
         if (opts.presences && (!(this.client.shards.options.intents & Intents.GUILD_PRESENCES))) {
             throw new TypeError("Cannot request presences without the GUILD_PRESENCES intent.");

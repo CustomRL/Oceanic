@@ -901,9 +901,9 @@ export default class Channels {
             method: "GET",
             path:   Routes.POLL_ANSWER_USERS(channelID, messageID, answerID),
             query
-        }).then(data => {
+        }).then(async data => {
             const users = data.users.map(user => this._manager.client.users.update(user));
-            const message = this._manager.client.getChannel<Types.Channels.AnyTextableChannel>(channelID)?.messages.get(messageID);
+            const message = await this._manager.client.getChannel<Types.Channels.AnyTextableChannel>(channelID)?.messages.get(messageID);
             if (message?.poll) {
                 this._manager.client.util.replacePollAnswer(message.poll, answerID, users.length, users.map(u => u.id));
             }
@@ -1094,7 +1094,7 @@ export default class Channels {
         }).then(data => data.map(d => {
             // eslint-disable-next-line @typescript-eslint/dot-notation
             const guild = this._manager.client.getChannel<Types.Channels.AnyGuildChannel>(channelID)?.["_cachedGuild"];
-            const member = guild && options?.withMember ? guild.members.update(d.member!, guild.id) : undefined;
+            const member = guild && options?.withMember ? guild.members.update(d.member!) : undefined;
             return {
                 flags:         d.flags,
                 id:            d.id,
@@ -1298,7 +1298,7 @@ export default class Channels {
                     flags:         m.flags,
                     id:            m.id,
                     joinTimestamp: new Date(m.join_timestamp),
-                    member:        m.member && guild?.members.update(m.member, guild.id),
+                    member:        m.member && guild?.members.update(m.member),
                     userID:        m.user_id
                 })),
                 threads:      data.threads.map(thread => this._manager.client.util.updateThread<T>(thread)),

@@ -6,7 +6,6 @@ import Member from "./Member";
 import GuildScheduledEvent from "./GuildScheduledEvent";
 import ThreadChannel from "./ThreadChannel";
 import GuildJoinRequest from "./GuildJoinRequest";
-import type User from "./User";
 import type VoiceChannel from "./VoiceChannel";
 import type ClientApplication from "./ClientApplication";
 import type TextChannel from "./TextChannel";
@@ -46,6 +45,7 @@ import {
 import * as Routes from "../util/Routes";
 import type Client from "../Client";
 import TypedCollection from "../util/TypedCollection";
+import RedisCollection from "../util/RedisCollection";
 import type Shard from "../gateway/Shard";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore-line
@@ -121,16 +121,14 @@ export default class Guild extends Base {
     maxVideoChannelUsers?: number;
     /** The number of members in this guild. */
     memberCount: number;
-    /** The cached members in this guild. */
-    members: TypedCollection<Types.Guilds.RawMember | Types.Guilds.RESTMember, Member, [guildID: string]>;
+    /** The cached members in this guild, stored in Redis. */
+    members: RedisCollection<Types.Guilds.RawMember | Types.Guilds.RESTMember, Member>;
     /** The required [mfa level](https://discord.com/developers/docs/resources/guild#guild-object-mfa-level) for moderators of this guild. */
     mfaLevel: MFALevels;
     /** The name of this guild. */
     name: string;
     /** The [nsfw level](https://discord.com/developers/docs/resources/guild#guild-object-guild-nsfw-level) of this guild. */
     nsfwLevel: GuildNSFWLevels;
-    /** The owner of this guild. */
-    owner?: User | null;
     /** The ID of the owner of this guild. */
     ownerID: string | null;
     /** The [preferred locale](https://discord.com/developers/docs/reference#locales) of this guild. */
@@ -226,11 +224,10 @@ export default class Guild extends Base {
         this.large = (data.member_count ?? data.approximate_member_count ?? 0) >= client.shards.options.largeThreshold;
         this.latestOnboardingQuestionID = null;
         this.memberCount = data.member_count ?? data.approximate_member_count ?? 0;
-        this.members = new TypedCollection(Member, client, client.util._getLimit("members", this.id));
+        this.members = new RedisCollection(client, `oceanic:member:${this.id}:`, rawMember => new Member(rawMember, client, this.id), { joinUser: true });
         this.mfaLevel = data.mfa_level;
         this.name = data.name;
         this.nsfwLevel = data.nsfw_level;
-        this.owner = data.owner_id === null ? null : client.users.get(data.owner_id)!;
         this.ownerID = data.owner_id;
         this.preferredLocale = data.preferred_locale;
         this.premiumProgressBarEnabled = data.premium_progress_bar_enabled;
@@ -281,9 +278,12 @@ export default class Guild extends Base {
             }
         }
 
+        // the members cache can't be read synchronously, so presences and voice states are matched to the members in this payload
+        const members = new Map<string, Member>();
         if (data.members) {
             for (const rawMember of data.members) {
-                const member = this.members.update({ ...rawMember, id: rawMember.user?.id }, this.id);
+                const member = this.members.update({ ...rawMember, id: rawMember.user?.id });
+                members.set(member.id, member);
                 if (this.client["_user"] && member.id === this.client.user.id) {
                     this._clientMember = member;
                 }
@@ -299,7 +299,7 @@ export default class Guild extends Base {
 
         if (data.presences) {
             for (const presence of data.presences) {
-                const member = this.members.get(presence.user.id);
+                const member = members.get(presence.user.id);
                 if (member) {
                     delete (presence as { user?: Types.Gateway.PresenceUpdate["user"]; }).user;
                     member.presence = {
@@ -338,13 +338,14 @@ export default class Guild extends Base {
 
         if (data.voice_states) {
             for (const voiceState of data.voice_states) {
-                if (!this.members.has(voiceState.user_id) || !voiceState.channel_id) {
+                if (!members.has(voiceState.user_id) || !voiceState.channel_id) {
                     continue;
                 }
                 voiceState.guild_id = this.id;
                 this.voiceStates.update({ ...voiceState, id: voiceState.user_id });
                 const channel = this.channels.get(voiceState.channel_id) as VoiceChannel | StageChannel;
-                const member = this.members.update({ id: voiceState.user_id, deaf: voiceState.deaf, mute: voiceState.mute }, this.id);
+                const member = members.get(voiceState.user_id)!;
+                member["update"]({ deaf: voiceState.deaf, mute: voiceState.mute });
                 if (this._clientMember) {
                     this._clientMember["update"]({ deaf: voiceState.deaf, mute: voiceState.mute });
                 }
@@ -370,30 +371,6 @@ export default class Guild extends Base {
             (this.features.includes(feature) ? this.features : [...this.features, feature]) :
             this.features.filter(name => name !== feature);
         return this.edit({ features: newFeatures, reason });
-    }
-
-    // true = `memberCount`
-    private updateMemberLimit(toAdd: true | number): void {
-        if (this.members.limit === Infinity || this.client.options.disableMemberLimitScaling) {
-            return;
-        }
-        const original = this.members.limit;
-        const num = toAdd === true ? this.memberCount : this.members.limit + toAdd;
-        const round = 10 ** (Math.floor(Math.log10(num)) - 1);
-        if (toAdd === true) {
-            const limit = Math.round(num / round) * round + round;
-            if (this.members.limit >= limit) {
-                return;
-            }
-            this.members.limit = limit;
-        } else {
-            const limit = Math.round((this.members.size + toAdd) / round) * round + round;
-            if (this.members.limit >= limit) {
-                return;
-            }
-            this.members.limit = limit;
-        }
-        this.client.emit("debug", `The limit of the members collection of guild ${this.id} has been updated from ${original} to ${this.members.limit} to accommodate at least ${toAdd === true ? this.memberCount : this.members.size + toAdd} members.`);
     }
 
     protected override update(data: Partial<Types.Guilds.RawGuild>): void {
@@ -487,7 +464,6 @@ export default class Guild extends Base {
         }
         if (data.owner_id !== undefined) {
             this.ownerID = data.owner_id;
-            this.owner = data.owner_id === null ? null : this.client.users.get(data.owner_id)!;
         }
         if (data.preferred_locale !== undefined) {
             this.preferredLocale = data.preferred_locale;
@@ -559,9 +535,8 @@ export default class Guild extends Base {
         }
     }
 
-    /** The client's member for this guild. This will throw an error if the member is not cached. */
+    /** The client's member for this guild, kept in memory. This will throw an error if the member is not cached. */
     get clientMember(): Member {
-        this._clientMember ??= this.client["_user"] === undefined ? undefined : this.members.get(this.client["_user"].id);
         if (!this._clientMember) {
             if (this._rest) {
                 throw new UncachedError(`${this.constructor.name}#clientMember is not present when the guild is obtained via rest.`);
@@ -1475,15 +1450,15 @@ export default class Guild extends Base {
     }
 
     /**
-     * Get the permissions of a member. If providing an id, the member must be cached.
+     * Get the permissions of a member. An id can only be the client's own, as other members are stored in Redis; pass a Member from `await guild.members.get(id)`.
      * @param member The member to get the permissions of.
      */
     permissionsOf(member: string | Member): Permission {
         if (typeof member === "string") {
-            member = this.members.get(member)!;
+            member = (member === this.client.user.id ? this.clientMember : undefined)!;
         }
         if (!member) {
-            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID when the member is not cached.`);
+            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID other than the client's. Pass a Member instead.`);
         }
         if (member.id === this.ownerID) {
             return new Permission(AllPermissions);
@@ -1620,7 +1595,6 @@ export default class Guild extends Base {
             maxStageVideoChannelUsers:   this.maxStageVideoChannelUsers,
             maxVideoChannelUsers:        this.maxVideoChannelUsers,
             memberCount:                 this.memberCount,
-            members:                     this.members.map(member => member.id),
             mfaLevel:                    this.mfaLevel,
             name:                        this.name,
             nsfwLevel:                   this.nsfwLevel,

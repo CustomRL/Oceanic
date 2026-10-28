@@ -328,7 +328,6 @@ export interface JSONGuild extends JSONBase {
     maxStageVideoChannelUsers?: number;
     maxVideoChannelUsers?: number;
     memberCount: number;
-    members: Array<string>;
     mfaLevel: MFALevels;
     name: string;
     nsfwLevel: GuildNSFWLevels;
@@ -694,7 +693,6 @@ export interface JSONPrimaryGuild {
 export interface JSONPrivateChannel extends JSONChannel {
     lastMessageID: string | null;
     lastPinTimestamp: string | null;
-    messages: Array<string>;
     recipient: JSONUser;
     type: ChannelTypes.DM;
 }
@@ -794,7 +792,6 @@ export interface JSONTestEntitlement extends JSONBaseEntitlement {}
 export interface JSONTextableChannel extends JSONGuildChannel {
     lastMessageID: string | null;
     lastPinTimestamp: string | null;
-    messages: Array<string>;
     nsfw: boolean;
     permissionOverwrites: Array<JSONPermissionOverwrite>;
     position: number;
@@ -825,7 +822,6 @@ export interface JSONThreadChannel extends JSONGuildChannel {
     lastMessageID: string | null;
     memberCount: number;
     messageCount: number;
-    messages: Array<string>;
     ownerID: string;
     rateLimitPerUser: number;
     threadMetadata: Types.Channels.ThreadMetadata | Types.Channels.PrivateThreadMetadata;

@@ -49,7 +49,7 @@ export default class Member extends Base {
         let user: User | undefined;
         let id: string | undefined;
         if (!data.user && data.id) {
-            user = client.users.get(id = data.id);
+            id = data.id;
         } else if (data.user) {
             id = (user = client.users.update(data.user)).id;
         }
@@ -71,7 +71,8 @@ export default class Member extends Base {
         this.premiumSince = null;
         this.roles = [];
         this.user = user;
-        this.update(data);
+        // the user was stored above; update() would write it to Redis a second time
+        this.update({ ...data, user: undefined });
     }
 
     private toggleFlag(flag: GuildMemberFlags, enable: boolean, reason?: string): Promise<Member> {

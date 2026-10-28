@@ -11,6 +11,7 @@ import type * as Types from "../types/namespaced";
 import { AllPermissions, Permissions } from "../Constants";
 import type Client from "../Client";
 import TypedCollection from "../util/TypedCollection";
+import RedisCollection from "../util/RedisCollection";
 import { UncachedError } from "../util/Errors";
 
 /** Represents a guild textable channel. Not used for threads. */
@@ -21,8 +22,8 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     lastMessageID: string | null;
     /** The timestamp of the last pinned message in this channel. */
     lastPinTimestamp: string | null;
-    /** The cached messages in this channel. */
-    messages: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
+    /** The cached messages in this channel, stored in Redis. */
+    messages: RedisCollection<Types.Channels.RawMessage, Message<CH>>;
     /** If this channel is age gated. */
     nsfw: boolean;
     /** The permission overwrites of this channel. */
@@ -38,7 +39,7 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
         super(data, client);
         this.lastMessageID = data.last_message_id;
         this.lastPinTimestamp = data.last_pin_timestamp;
-        this.messages = new TypedCollection(Message<CH>, client, this.client.util._getLimit("messages", this.id));
+        this.messages = new RedisCollection(client, "oceanic:message:", rawMessage => new Message<CH>(rawMessage, client), { ttl: client.options.redis.messageTTL });
         this.nsfw = data.nsfw;
         this.permissionOverwrites = new TypedCollection(PermissionOverwrite, client);
         this.position = data.position;
@@ -50,7 +51,7 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     protected override update(data: Partial<Types.Channels.RawTextChannel | Types.Channels.RawAnnouncementChannel | Types.Channels.RawVoiceChannel | Types.Channels.RawStageChannel>): void {
         super.update(data);
         if (data.last_message_id !== undefined) {
-            this.lastMessage = data.last_message_id === null ? null : this.messages.get(data.last_message_id);
+            this.lastMessage = data.last_message_id === null ? null : (this.lastMessage?.id === data.last_message_id ? this.lastMessage : undefined);
             this.lastMessageID = data.last_message_id;
         }
         if (data.last_pin_timestamp !== undefined) {
@@ -268,15 +269,15 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     }
 
     /**
-     * Get the permissions of a member. If providing an id, the member must be cached.
+     * Get the permissions of a member. An id can only be the client's own, as other members are stored in Redis; pass a Member from `await guild.members.get(id)`.
      * @param member The member to get the permissions of.
      */
     permissionsOf(member: string | Member): Permission {
         if (typeof member === "string") {
-            member = this.guild.members.get(member)!;
+            member = (member === this.client.user.id ? this.guild.clientMember : undefined)!;
         }
         if (!member) {
-            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID when the member is not cached.`);
+            throw new UncachedError(`Cannot use ${this.constructor.name}#permissionsOf with an ID other than the client's. Pass a Member instead.`);
         }
         let permission = this.guild.permissionsOf(member).allow;
         if (permission & Permissions.ADMINISTRATOR) {
@@ -332,7 +333,6 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
             ...super.toJSON(),
             lastMessageID:        this.lastMessageID,
             lastPinTimestamp:     this.lastPinTimestamp,
-            messages:             this.messages.map(message => message.id),
             nsfw:                 this.nsfw,
             permissionOverwrites: this.permissionOverwrites.map(overwrite => overwrite.toJSON()),
             position:             this.position,

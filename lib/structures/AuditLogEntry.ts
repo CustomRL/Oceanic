@@ -1,13 +1,11 @@
 /** @module AuditLogEntry */
 import Base from "./Base";
-import type User from "./User";
 import type * as Types from "../types/namespaced";
 import type { AuditLogActionTypes } from "../Constants";
 import type Client from "../Client";
 
 /** Represents a guild audit log entry. */
 export default class AuditLogEntry extends Base {
-    private _cachedUser?: User | null;
     /** The [type](https://discord.com/developers/docs/resources/audit-log#audit-log-entry-object-audit-log-events) of this action. */
     actionType: AuditLogActionTypes;
     /** See the [audit log documentation](https://discord.com/developers/docs/resources/audit-log#audit-log-change-object) for more information. */
@@ -42,14 +40,5 @@ export default class AuditLogEntry extends Base {
         this.reason = data.reason;
         this.targetID = data.target_id;
         this.userID = data.user_id;
-    }
-
-    /** The user or application that made the changes. */
-    get user(): User | undefined | null {
-        if (this.userID !== null && this._cachedUser !== null) {
-            return this._cachedUser ?? (this._cachedUser = this.client.users.get(this.userID));
-        }
-
-        return this._cachedUser === null ? this._cachedUser : (this._cachedUser = null);
     }
 }

@@ -26,8 +26,6 @@ export default class GroupChannel extends Channel {
     name: string | null;
     /** The nicknames used when creating this group channel. */
     nicks: Array<Record<"id" | "nick", string>>;
-    /** The owner of this group channel. */
-    owner?: User;
     /** The ID of the owner of this group channel. */
     ownerID: string;
     /** The other recipients in this group channel. */
@@ -42,7 +40,6 @@ export default class GroupChannel extends Channel {
         this.managed = false;
         this.name = data.name;
         this.nicks = [];
-        this.owner = this.client.users.get(data.owner_id);
         this.ownerID = data.owner_id;
         this.recipients = new TypedCollection(User, client, Infinity, {
             construct: (user): User => client.users.update(user)
@@ -81,7 +78,6 @@ export default class GroupChannel extends Channel {
             this.nicks = data.nicks;
         }
         if (data.owner_id !== undefined) {
-            this.owner = this.client.users.get(data.owner_id);
             this.ownerID = data.owner_id;
         }
         if (data.type !== undefined) {

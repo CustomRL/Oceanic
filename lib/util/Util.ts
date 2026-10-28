@@ -1,5 +1,6 @@
 /** @module Util */
 import { CDN_URL } from "./Routes";
+import RedisCollection from "./RedisCollection";
 import { FrozenModificationError } from "./Errors";
 import { fromRaw as messageComponentsFromRaw, toRaw as messageComponentsToRaw } from "./parsing/message-components";
 import { fromRaw as modalSubmitComponentsFromRaw, toRaw as modalSubmitComponentsToRaw } from "./parsing/modal-components";
@@ -400,15 +401,17 @@ export default class Util {
     /** @internal */
     updateMember(guildID: string, memberID: string, member: Types.Guilds.RawMember | Types.Guilds.RESTMember): Member {
         const guild = this._client.guilds.get(guildID);
-        if (guild && this._client["_user"] && this._client.user.id === memberID) {
+        // data nested in an entry read from Redis is old, so it must not overwrite the in-memory client member
+        if (guild && this._client["_user"] && this._client.user.id === memberID && !RedisCollection.reading) {
             if (guild["_clientMember"]) {
                 guild["_clientMember"]["update"](member);
+                guild.members.write(memberID, member);
             } else {
-                guild["_clientMember"] = guild.members.update({ ...member, id: memberID }, guildID);
+                guild["_clientMember"] = guild.members.update({ ...member, id: memberID });
             }
             return guild["_clientMember"];
         }
-        return guild ? guild.members.update({ ...member, id: memberID }, guildID) : new Member({ ...member, id: memberID }, this._client, guildID);
+        return guild ? guild.members.update({ ...member, id: memberID }) : new Member({ ...member, id: memberID }, this._client, guildID);
     }
 
     /** @internal */
@@ -465,7 +468,8 @@ export default class Util {
     /** @internal */
     updateThread<T extends Types.Channels.AnyThreadChannel>(threadData: Types.Channels.RawThreadChannel): T {
         const guild = this._client.guilds.get(threadData.guild_id);
-        if (guild) {
+        // a thread nested in a message read from Redis is as old as the message, so it must not overwrite the cached thread
+        if (guild && !RedisCollection.reading) {
             return guild.threads.update(threadData) as T;
         }
         return Channel.from<T>(threadData, this._client);
