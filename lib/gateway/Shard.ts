@@ -35,7 +35,7 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
     private _guildCreateTimeout: NodeJS.Timeout | null;
     private _heartbeatInterval: NodeJS.Timeout | null;
     private _requestChannelInfoPromise: Record<string, { channels: Array<Types.Gateway.ChannelInfoWithChannel>; guildID: string; timeout: NodeJS.Timeout; reject(reason?: unknown): void; resolve(value: unknown): void; }>;
-    private _requestMembersPromise: Record<string, { members: Array<Member>; received: number; timeout: NodeJS.Timeout; reject(reason?: unknown): void; resolve(value: unknown): void; }>;
+    private _requestMembersPromise: Record<string, { cacheOnly: boolean; members: Array<Member>; received: number; timeout: NodeJS.Timeout; reject(reason?: unknown): void; resolve(value: unknown): void; }>;
     private _requestSoundboardSoundsPromise: Record<string, { guildID: string; soundboardSounds: Array<Soundboard>; timeout: NodeJS.Timeout; reject(reason?: unknown): void; resolve(value: unknown): void; }>;
     client!: Client;
     connectAttempts: number;
@@ -186,10 +186,10 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
     private createGuild(data: Types.Guilds.RawGuild): Guild {
         this.client.guildShardMap.set(data.id, this.id);
         const guild = this.client.guilds.update(data);
-        // the members cache is in Redis and its size unknown, so every guild is requested
+        // the members cache is in Redis and its size unknown, so every guild is requested; cacheOnly keeps them out of memory
         if (this.client.shards.options.getAllUsers) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
-            void this.requestGuildMembers(guild.id, { presences: (this.client.shards.options.intents & Intents.GUILD_PRESENCES) === Intents.GUILD_PRESENCES });
+            void this.requestGuildMembers(guild.id, { cacheOnly: true, presences: (this.client.shards.options.intents & Intents.GUILD_PRESENCES) === Intents.GUILD_PRESENCES });
         }
 
 
@@ -674,7 +674,9 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
      * @param guildID The ID of the guild to request the members of.
      * @param options The options for requesting the members.
      */
-    async requestGuildMembers(guildID: string, options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>> {
+    requestGuildMembers(guildID: string, options: Types.Gateway.RequestGuildMembersOptions & { cacheOnly: true; }): Promise<number>;
+    requestGuildMembers(guildID: string, options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>>;
+    async requestGuildMembers(guildID: string, options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member> | number> {
         const opts = {
             guild_id:  guildID,
             limit:     options?.limit ?? 0,
@@ -696,11 +698,13 @@ export default class Shard extends TypedEmitter<Types.Events.ShardEvents> {
             throw new TypeError("Cannot request more than 100 users at once.");
         }
         this.send(GatewayOPCodes.REQUEST_GUILD_MEMBERS, opts);
-        return new Promise<Array<Member>>((resolve, reject) => this._requestMembersPromise[opts.nonce] = {
-            members:  [],
-            received: 0,
-            timeout:  setTimeout(() => {
-                resolve(this._requestMembersPromise[opts.nonce].members);
+        return new Promise<Array<Member> | number>((resolve, reject) => this._requestMembersPromise[opts.nonce] = {
+            cacheOnly: !!options?.cacheOnly,
+            members:   [],
+            received:  0,
+            timeout:   setTimeout(() => {
+                const request = this._requestMembersPromise[opts.nonce];
+                resolve(request.cacheOnly ? request.received : request.members);
                 delete this._requestMembersPromise[opts.nonce];
             }, options?.timeout ?? this.client.rest.options.requestTimeout),
             resolve,

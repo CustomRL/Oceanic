@@ -225,6 +225,8 @@ export interface GetBotGatewayResponse extends GetGatewayResponse {
 }
 
 export interface RequestGuildMembersOptions {
+    /** Only write the members to the cache, and resolve with how many were received instead of the members. Use this for large guilds, so the members are never all held in memory. */
+    cacheOnly?: boolean;
     /** The maximum number of members to request. */
     limit?: number;
     /**

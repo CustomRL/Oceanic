@@ -288,14 +288,18 @@ export async function GUILD_MEMBERS_CHUNK(data: DispatchEventMap["GUILD_MEMBERS_
         shard.client.emit("warn", "Received GUILD_MEMBERS_CHUNK without a nonce.");
         return;
     }
-    if (shard["_requestMembersPromise"][data.nonce]) {
-        shard["_requestMembersPromise"][data.nonce].members.push(...members);
+    const request = shard["_requestMembersPromise"][data.nonce];
+    if (request) {
+        request.received += members.length;
+        if (!request.cacheOnly) {
+            request.members.push(...members);
+        }
     }
 
     if (data.chunk_index >= data.chunk_count - 1) {
-        if (shard["_requestMembersPromise"][data.nonce]) {
-            clearTimeout(shard["_requestMembersPromise"][data.nonce].timeout);
-            shard["_requestMembersPromise"][data.nonce].resolve(shard["_requestMembersPromise"][data.nonce].members);
+        if (request) {
+            clearTimeout(request.timeout);
+            request.resolve(request.cacheOnly ? request.received : request.members);
             delete shard["_requestMembersPromise"][data.nonce];
         }
         if (shard["_getAllUsersCount"][data.guild_id]) {

@@ -1076,8 +1076,10 @@ export default class Guild extends Base {
      * @param options The options for fetching the members.
      * @deprecated Use {@link requestMembers}. This will be removed in `1.16.0`.
      */
-    async fetchMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>> {
-        return this.requestMembers(options);
+    fetchMembers(options: Types.Gateway.RequestGuildMembersOptions & { cacheOnly: true; }): Promise<number>;
+    fetchMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>>;
+    async fetchMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member> | number> {
+        return this.requestMembers(options as never);
     }
 
     /**
@@ -1523,8 +1525,10 @@ export default class Guild extends Base {
      * Request members from this guild.
      * @param options The options for fetching the members.
      */
-    async requestMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>> {
-        return this.shard.requestGuildMembers(this.id, options);
+    requestMembers(options: Types.Gateway.RequestGuildMembersOptions & { cacheOnly: true; }): Promise<number>;
+    requestMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>>;
+    async requestMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member> | number> {
+        return this.shard.requestGuildMembers(this.id, options as never);
     }
 
     /**
