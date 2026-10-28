@@ -8,9 +8,11 @@ export type DispatchEvent = Types.GatewayRaw.AnyDispatchPacket["t"];
 export type DispatchEventMap = {
     [K in Types.GatewayRaw.AnyDispatchPacket as K["t"]]: K["d"];
 };
-export type DispatchFunction<K extends DispatchEvent = DispatchEvent> = (data: DispatchEventMap[K], shard: Shard) => void;
+export type DispatchFunction<K extends DispatchEvent = DispatchEvent> = (data: DispatchEventMap[K], shard: Shard) => void | Promise<void>;
 export default class Dispatcher {
     private manager!: ShardManager;
+    /** The tail of each shard's queue. Handlers read and write Redis, so each packet waits for the previous one; otherwise an update could be handled before its create. */
+    private queues = new Map<number, Promise<void>>();
     events: Map<DispatchEvent, Array<DispatchFunction>> = new Map();
     constructor(manager: ShardManager) {
         Object.defineProperty(this, "manager", {
@@ -36,7 +38,17 @@ export default class Dispatcher {
         const event = data.t;
         if (!this.events.has(event)) return;
         const arr = this.events.get(event)!;
-        for (const fn of arr) fn(data.d, shard);
+        const run = async (): Promise<void> => {
+            for (const fn of arr) {
+                try {
+                    await fn(data.d, shard);
+                } catch (err) {
+                    // with no error listener, emitting "error" throws; in a microtask that surfaces as an uncaught error instead of stopping the queue
+                    queueMicrotask(() => this.manager.client.emit("error", err as Error, shard.id));
+                }
+            }
+        };
+        this.queues.set(shard.id, (this.queues.get(shard.id) ?? Promise.resolve()).then(run));
     }
 
     register<K extends DispatchEvent>(event: K, fn: DispatchFunction<K>, replace = false): void {
